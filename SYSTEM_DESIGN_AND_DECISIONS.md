@@ -8,27 +8,52 @@
 
 ```mermaid
 flowchart TD
-    User([User]) -->|Text or Speech Audio| FE[Frontend Client (Vite + React)]
-    
-    subgraph Frontend [Client Layer]
-        FE --> Mic[Audio Capture / Text Input]
-        FE --> AudioPlayer[Web Audio Engine (Synced Player)]
-        FE --> Canvas[Interactive Whiteboard (Canvas/SVG)]
+    subgraph Vercel [Frontend Layer - Deployed on Vercel]
+        User([Student / User]) -->|Voice / Text| UI[React + Vite Blackboard UI]
+        AuthModal[Auth & Profile Manager] -->|Session Token| UI
+        UI --> CanvasEngine[Rough.js Whiteboard + Canvas + KaTeX]
+        UI --> WebAudio[Web Audio Engine - Synced Player]
     end
 
-    subgraph Backend [Backend Orchestrator (FastAPI)]
-        Mic -->|Audio Stream / Prompt| STT[STT Engine: Deepgram / Groq Whisper]
-        STT --> Transcript[User Intent / Topic]
-        Transcript --> LLM[LLM Reasoning: Groq Llama-3.3]
-        
-        LLM -->|Structured Script + Visual Markers| Parser[Sync Planner & Splitter]
-        Parser -->|Speech Text + Cue Points| TTS[TTS Engine: Deepgram Aura / Edge-TTS]
-        Parser -->|Visual Action Graph / Timeline| ActionQueue[Board Action Frames]
+    subgraph AWS [Backend & Cloud Infrastructure - Deployed on AWS]
+        subgraph Compute [AWS ECS Fargate / Docker Container]
+            API[FastAPI Gateway]
+            WS[Persistent WebSocket Router]
+            AuthService[Auth & JWT Verification]
+            LLMOrchestrator[LLM Reasoning & Cue Planner - Groq]
+            SyncEngine[Audio & Visual Sync Engine]
+            KnowledgeTracer[Student Progress & Understanding Engine]
+        end
+
+        subgraph Database [Storage & Memory Services]
+            RDS[(AWS RDS PostgreSQL + pgvector)]
+            Redis[(AWS ElastiCache Redis - Active Sessions)]
+            S3[(AWS S3 Bucket - Boards, Audio & Notes)]
+        end
     end
 
-    TTS -->|Audio Packets + Timestamps| AudioPlayer
-    ActionQueue -->|Timed Drawing Events (WebSocket/SSE)| Canvas
-    AudioPlayer -.->|Playback Time Synchronization| Canvas
+    subgraph AI_Providers [AI Cloud Services]
+        DeepgramSTT[Deepgram Nova-2 STT]
+        DeepgramTTS[Deepgram Aura TTS]
+        GroqLLM[Groq Llama 3.3 70B / DeepSeek R1 / 120B]
+    end
+
+    UI <==>|Full-Duplex Secure WebSocket (WSS)| WS
+    UI -->|REST API (Auth, Profile, History)| API
+    API --> AuthService
+    AuthService --> RDS
+
+    WS --> DeepgramSTT
+    WS --> LLMOrchestrator
+    LLMOrchestrator <--> GroqLLM
+    LLMOrchestrator <--> RDS
+    LLMOrchestrator <--> Redis
+
+    SyncEngine <--> DeepgramTTS
+    SyncEngine ==>|Streaming Audio + Timed Cue Frames| WS
+
+    KnowledgeTracer -->|Update Mastery & Topic Progress| RDS
+    API -->|Save/Load Board Snapshots| S3
 ```
 
 ---
@@ -223,6 +248,108 @@ You have existing API keys for **Deepgram** (`DEEPGRAM_API`) and **Groq** (`GROQ
 - [x] **User Freehand Pen** (user can draw on top of AI's whiteboard)
 - [x] **Playback Speed Selector** (0.75x, 1x, 1.25x, 1.5x)
 
+*Additional Notes:*
+
+---
+
+### Phase 7: Multi-User Authentication & Profiles
+
+#### Question 7.1: Which authentication provider should be used?
+- [x] **Option A (Recommended - Clerk / Supabase Auth)**:
+  - Turnkey modern UI modal with Google, GitHub, and email/password login.
+  - Generates secure JWTs verified statelessly by FastAPI backend (`Depends(verify_token)`).
+  - Instant user profile management and session persistence.
+- [ ] **Option B (FastAPI Native OAuth2 + JWT with PostgreSQL)**:
+  - Full control over user credentials, passwords hashed with bcrypt in PostgreSQL.
+  - No external vendor cost or third-party dependency.
+- [ ] **Option C (AWS Cognito)**:
+  - Native AWS integration with User Pools and IAM roles.
+
+*Your Choice:* **Option A**  
+*Additional Notes:*
+
+---
+
+#### Question 7.2: What student profile attributes should be tracked for personalization?
+*(Select all that apply)*
+- [x] **Target Educational Level** (e.g. Middle School, High School, Undergraduate, Professional)
+- [x] **Preferred Learning Pace** (Concise summary vs. Deep-dive step-by-step)
+- [x] **Tutor Persona & Accent** (Encouraging mentor, Academic professor, Socratic questioner)
+- [x] **Primary Subject Focus** (STEM, Medicine/Biology, Coding, General Science)
+
+*Additional Notes:*
+
+---
+
+### Phase 8: Memory Storage & Cross-Session Recall
+
+To feel like a real 1-on-1 human tutor, Parashurama must remember the student across sessions (e.g., past doubts, weak topics, and previous lesson notes).
+
+#### Question 8.1: How should the multi-tiered memory system be structured?
+- [x] **Option A (Recommended - 3-Tier Memory Architecture)**:
+  1. **Working Memory (Redis / ElastiCache)**:
+     - Maintains active lecture state, uncommitted whiteboard strokes, and live speech turn buffers during an active WebSocket session.
+  2. **Episodic & Relational Memory (AWS RDS PostgreSQL)**:
+     - Stores structured lesson history, full lecture transcripts, whiteboard snapshots, and time-stamped cue logs.
+  3. **Semantic Memory (Vector Embeddings via `pgvector` on RDS)**:
+     - Embeds student queries, past misconceptions, and lecture summaries into vector space.
+     - *Recall in action*: When a user struggles with a concept, the tutor recalls: *"Last week when we covered Derivatives, you had a similar question on the chain rule..."*
+
+*Your Choice:* **Option A**  
+*Additional Notes:*
+
+---
+
+### Phase 9: User Learning Understanding & Progress Identification
+
+#### Question 9.1: How should student understanding and topic mastery be measured?
+- [x] **Option A (Recommended - Bayesian Knowledge Tracing & Concept Graph)**:
+  - Topics are organized as a directed Knowledge Graph (e.g., `Calculus` $\rightarrow$ requires `Algebra` $\rightarrow$ requires `Arithmetic`).
+  - Student has a **Mastery Probability (0% to 100%)** per concept that updates dynamically after each lecture and comprehension checkpoint.
+- [ ] **Option B (Rule-based Progress Log)**:
+  - Simple checklist of completed topics and study duration.
+
+*Your Choice:* **Option A**  
+*Additional Notes:*
+
+---
+
+#### Question 9.2: How should the AI Tutor assess understanding in real-time?
+*(Select all that apply)*
+- [x] **Interactive In-Lecture Checkpoints**: The AI Tutor pauses narration, writes a test question on the board, and waits for student verbal or text response.
+- [x] **Socratic Diagnostic Feedback**: The tutor analyzes the student's answer, identifies specific misconceptions, and adapts the whiteboard diagram to clarify.
+- [x] **Student Learning Analytics Dashboard**: Visual mastery heatmap, retention decay estimates (spaced repetition reminders), and recommended next topics.
+- [x] **Post-Lecture Quiz & Summary Card**: Auto-generates 3 quick practice problems at the end of each session.
+
+*Additional Notes:*
+
+---
+
+### Phase 10: Cloud Deployment & DevOps Architecture (Vercel + AWS)
+
+#### Question 10.1: How will the Frontend be deployed on Vercel?
+- [x] **Option A (Vercel Edge & Static Hosting)**:
+  - Connected directly to GitHub repository (`Parushuram-frontend`).
+  - Automatic CI/CD deployments on `git push origin main`.
+  - Global CDN edge caching with ultra-low latency assets.
+  - Environment variables configured via Vercel dashboard (`VITE_API_URL`, `VITE_WS_URL`).
+
+*Your Choice:* **Option A**  
+*Additional Notes:*
+
+---
+
+#### Question 10.2: How will the Backend and Database be deployed on AWS?
+- [x] **Option A (Recommended - AWS ECS Fargate + RDS PostgreSQL + S3 + ElastiCache)**:
+  - **Compute**: Containerized FastAPI inside Docker running on **AWS ECS Fargate** behind an Application Load Balancer (ALB).
+    - *Why Fargate*: Native support for persistent, long-lived WebSockets (`wss://`) without serverless timeout limits.
+  - **Database**: **AWS RDS PostgreSQL** with `pgvector` extension for user data, lesson history, and memory embeddings.
+  - **Cache**: **AWS ElastiCache Redis** for fast real-time session state and rate-limiting.
+  - **Asset Storage**: **AWS S3** bucket for storing whiteboard PNG/SVG exports, lesson PDF notes, and cached audio files.
+- [ ] **Option B (AWS App Runner + Supabase + S3)**:
+  - Simpler container deployment with automated scaling, using managed Supabase for PostgreSQL.
+
+*Your Choice:* **Option A**  
 *Additional Notes:*
 
 ---
